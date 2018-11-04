@@ -171,6 +171,11 @@ CtxCmd cmdobjs[] = {
   .cmd = "hashtest", .func = ctx_exp_hashtest, .hide = true,
   .blurb = "test hash table speed",
   .usage = exp_hashtest_usage
+},
+{
+  .cmd = "traversalsubgraph", .func = ctx_exp_traversal_subgraph, .hide = false,
+  .blurb = "filter a graph to those kmers on paths between a start and end kmer",
+  .usage = exp_traversal_subgraph_usage
 }
 };
 
