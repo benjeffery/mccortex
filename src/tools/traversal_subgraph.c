@@ -34,9 +34,6 @@ static void traversal_subgraph_builder_alloc(TraversalSubgraphBuilder *builder,
 }
 
 static void traversal_subgraph_builder_dealloc(TraversalSubgraphBuilder *builder) {
-//    db_node_buf_dealloc(&builder->nbufs[0]);
-//    db_node_buf_dealloc(&builder->nbufs[1]);
-//    db_node_buf_dealloc(&builder->unitig_buf);
 }
 
 
@@ -95,73 +92,78 @@ void traverse_and_mark(dBGraph *db_graph, size_t nthreads, size_t max_depth,
     uint8_t *keep_forward = ctx_calloc(roundup_bits2bytes(db_graph->ht.capacity), 1);
     uint8_t *keep_reverse = ctx_calloc(roundup_bits2bytes(db_graph->ht.capacity), 1);
 
-    size_t pos = 0;
-    Edges edges = db_node_get_edges_union(db_graph, builder.start_node.key);
+    signed long pos = 0;
+    StackEntry* entry;
+    Edges edges;
     Nucleotide next_bases[4];
+    dBNode node;
+    int keep, seen, ended_keep = 0, ended_depth = 0, ended_seen = 0;
     stack[pos].current = 0;
     stack[pos].num = 1;
     stack[pos].nodes[0] = builder.start_node;
     bitset_set(builder.end_node.orient == FORWARD ? keep_forward : keep_reverse, builder.end_node.key);
-    do {
-        bool go_back = false;
-        StackEntry* entry = &stack[pos];
+
+    unsigned long visited = 0;
+    while (pos >= 0){
+        ++visited;
+        if (visited % 100000000 == 0) status("Visited: %lu depth:%ld", visited, pos);
+
+        entry = &stack[pos];
         //Have we exhausted the branches of the parent node?
-        if (entry->current < entry->num) {
-            dBNode node = entry->nodes[entry->current];
+        if (entry->current >= entry->num) {
+            --pos;
+            //Remove node from seen so it can be visited by other paths
+//            dBNode del_node = stack[pos].nodes[stack[pos].current-1];
+//            bitset_del(del_node.orient == FORWARD ? seen_forward : seen_reverse, del_node.key);
+            continue;
+        }
 
-//            char k[7];
-//            BinaryKmer bk = db_node_get_bkey(db_graph, node.key);
-//            if (node.orient != builder.start_node.orient)
-//                bk = binary_kmer_reverse_complement(bk, 7);
-//            binary_kmer_to_str(bk, 7, k);
-//            printf("%s", k);
+        node = entry->nodes[entry->current];
+        keep = bitset_get(node.orient == FORWARD ? keep_forward : keep_reverse, node.key);
+        seen = bitset_get(node.orient == FORWARD ? seen_forward : seen_reverse, node.key);
 
-            if(!(bitset_get(node.orient == FORWARD ? seen_forward : seen_reverse, node.key)) && !(
-                    node.key == builder.end_node.key && node.orient == builder.end_node.orient)) {
-                bitset_set(node.orient == FORWARD ? seen_forward : seen_reverse, node.key);
+//        char k[61];
+//        BinaryKmer bk = db_node_get_bkey(db_graph, node.key);
+//        if (node.orient != builder.start_node.orient) bk = binary_kmer_reverse_complement(bk, 61);
+//        binary_kmer_to_str(bk, 61, k);
+//        printf("%zu %d %d %d %s\n", pos, entry->current, seen, keep, k);
 
-//                printf(" A");
+        if (keep) {
+            ++ended_keep;
+            //We hit a node that we are already keeping - keep all our path!
+            status("Reached a target at depth: %zu\n", pos);
+            for (size_t i = pos - 1; i > 0; i--) {
+                node = stack[i].nodes[stack[i].current - 1]; //-1 here as current is pointing to the unexplored branch
+                if (bitset_get(node.orient == FORWARD ? keep_forward : keep_reverse, node.key)) {
+                    break;
+                }
+                bitset_set(node.orient == FORWARD ? keep_forward : keep_reverse, node.key);
+            }
+        }
+        if (seen) {
+            ++ended_seen;
+        }
+        if (!seen && !keep) {
+            //Fresh node - mark as seen and explore children
+            bitset_set(node.orient == FORWARD ? seen_forward : seen_reverse, node.key);
+            ++pos;
+            stack[pos].current = 0;
+            if (pos < max_depth) {
                 edges = db_node_get_edges_union(db_graph, node.key);
-                //Create the next step in the traverse
-                ++pos;
-                stack[pos].current = 0;
                 stack[pos].num = db_graph_next_nodes(
                         db_graph,
                         db_node_get_bkey(db_graph, node.key),
                         node.orient, //Forward relative to the starting kmer
                         edges, &stack[pos].nodes, next_bases);
-                //Next time we visit this node take the next branch
-                ++(entry->current);
             } else {
-                //Node seen before, or end kmer go back up
-//                printf(" SEEN");
-                go_back = true;
+                stack[pos].num = 0;
+                ++ended_depth;
             }
-            //If we got the end kmer, or one that is on a path to the end kmer (i.e. marked to keep, then keep this path)
-            if (bitset_get(node.orient == FORWARD ? keep_forward : keep_reverse, node.key)) {
-//                printf(" KEEP");
-                for (size_t i = pos-1; i > 0; i--) {
-                    node = stack[i].nodes[stack[i].current-1]; //-1 here as current is pointing to the unexplored branch
-                    if (bitset_get(node.orient == FORWARD ? keep_forward : keep_reverse, node.key)) {
-                        break;
-                    }
-                    bitset_set(node.orient == FORWARD ? keep_forward : keep_reverse, node.key);
-                }
-                go_back = true;
-            }
-//            printf("\n");
-        } else {
-            //We have exhausted this node, go back up
-            go_back = true;
         }
-        if (go_back) {
-            //Pop the stack and mark the node as unvisited
-            --pos;
-            dBNode node = stack[pos].nodes[stack[pos].current-1];
-            bitset_del(node.orient == FORWARD ? seen_forward : seen_reverse, node.key);
-        }
-        //Stop when we get back to the root node
-    } while (pos > 0 && pos < (max_depth - 1));
+        //Explore the next child next time we visit
+        ++(entry->current);
+    };
+    status("Traversal ended reasons: %d seen, %d keep, %d depth", ended_seen, ended_keep, ended_depth);
 
     bitset_set(builder.start_node.orient == FORWARD ? keep_forward : keep_reverse, builder.start_node.key);
 

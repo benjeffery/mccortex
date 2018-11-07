@@ -27,7 +27,7 @@ const char exp_traversal_subgraph_usage[] =
         //
         "  -s, --start <start.fa> Read in a start seed file [required]\n"
         "  -e, --end <end.fa>     Read in an end seed file [required]\n"
-        "  -d, --depth <N>         Maximum search depth [required]\n"
+        "  -d, --depth <N>        Maximum search depth [required]\n"
         "  -v, --invert           Dump kmers not in subgraph\n"
         "\n";
 
@@ -52,7 +52,7 @@ int ctx_exp_traversal_subgraph(int argc, char **argv) {
     size_t nthreads = 0;
     struct MemArgs memargs = MEM_ARGS_INIT;
     const char *out_path = NULL;
-    size_t i, j, max_depth = 3000;
+    size_t i, j, max_depth = 0;
     bool invert = false;
 
     seq_file_t *tmp_startfile;
@@ -128,7 +128,7 @@ int ctx_exp_traversal_subgraph(int argc, char **argv) {
     if (startfilebuf.len == 0) cmd_print_usage("Require at least one --start file");
     if (endfilebuf.len == 0) cmd_print_usage("Require at least one --end file");
     if (optind >= argc) cmd_print_usage("Require input graph files (.ctx)");
-
+    if (max_depth == 0) cmd_print_usage("Require max depth (-d)");
     size_t num_gfiles = (size_t) (argc - optind);
     char **gfile_paths = argv + optind;
 
