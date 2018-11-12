@@ -87,99 +87,85 @@ void traverse_and_mark(dBGraph *db_graph, size_t nthreads, size_t max_depth,
     seq_read_dealloc(&r1);
 
     StackEntry *stack = ctx_malloc(sizeof(StackEntry) * max_depth);
-//    uint8_t *seen_forward = ctx_calloc(roundup_bits2bytes(db_graph->ht.capacity), 1);
-//    uint8_t *seen_reverse = ctx_calloc(roundup_bits2bytes(db_graph->ht.capacity), 1);
-    uint8_t *keep_forward = ctx_calloc(roundup_bits2bytes(db_graph->ht.capacity), 1);
-    uint8_t *keep_reverse = ctx_calloc(roundup_bits2bytes(db_graph->ht.capacity), 1);
 
-    unsigned int *seen_depth_forward = ctx_calloc(db_graph->ht.capacity, sizeof(unsigned int));
-    unsigned int *seen_depth_reverse = ctx_calloc(db_graph->ht.capacity, sizeof(unsigned int));
+    long *target_distance_forward = ctx_calloc(db_graph->ht.capacity, sizeof(long));
+    long *target_distance_reverse = ctx_calloc(db_graph->ht.capacity, sizeof(long));
 
-    unsigned long pos = 1; //Start at 1 so that 0 can be used for not seen
+    unsigned long depth = 1; //Start at 1 so that 0 can be used for not seen
     StackEntry* entry;
     Edges edges;
     Nucleotide next_bases[4];
     dBNode node;
-    int keep, seen, ended_keep = 0, ended_depth = 0, ended_seen = 0;
-    stack[pos].current = 0;
-    stack[pos].num = 1;
-    stack[pos].nodes[0] = builder.start_node;
-    bitset_set(builder.end_node.orient == FORWARD ? keep_forward : keep_reverse, builder.end_node.key);
-    (builder.end_node.orient == FORWARD ? seen_depth_forward : seen_depth_reverse)[builder.end_node.key] = pos;
+    unsigned long keep, seen, ended_keep = 0, ended_depth = 0, ended_seen = 0;
+    long target_distance, parent_target_distance;
+    stack[depth].current = 0;
+    stack[depth].num = 1;
+    stack[depth].nodes[0] = builder.start_node;
+
+    //0 in this means unvisited, -1 visted and not on path to target, +ve is minimum number of steps to the target
+    (builder.end_node.orient == FORWARD ? target_distance_forward : target_distance_reverse)[builder.end_node.key] = 1;
 
     unsigned long visited = 0;
-    while (pos >= 1){
-        if (visited % 100000000 == 0) status("Visited: %lu depth:%lu", visited, pos);
+    while (depth >= 1){
+        if (visited % 100000000 == 0) status("Visited: %lu depth:%lu", visited, depth);
 
-        entry = &stack[pos];
+        entry = &stack[depth];
         //Have we exhausted the branches of the parent node?
         if (entry->current >= entry->num) {
-            --pos;
-            //Remove node from seen so it can be visited by other paths
-//            dBNode del_node = stack[pos].nodes[stack[pos].current-1];
-//            bitset_del(del_node.orient == FORWARD ? seen_forward : seen_reverse, del_node.key);
+            --depth;
             continue;
         }
 
         node = entry->nodes[entry->current];
-        keep = bitset_get(node.orient == FORWARD ? keep_forward : keep_reverse, node.key);
-//        seen = bitset_get(node.orient == FORWARD ? seen_forward : seen_reverse, node.key);
-        unsigned int seen_depth = (node.orient == FORWARD ? seen_depth_forward : seen_depth_reverse)[node.key];
-        bool already_seen_shallower = seen_depth != 0 && pos >= seen_depth;
+        target_distance = (node.orient == FORWARD ? target_distance_forward : target_distance_reverse)[node.key];
+
 //        char k[61];
 //        BinaryKmer bk = db_node_get_bkey(db_graph, node.key);
 //        if (node.orient != builder.start_node.orient) bk = binary_kmer_reverse_complement(bk, 61);
 //        binary_kmer_to_str(bk, 61, k);
-//        printf("%zu %d %d %d %s\n", pos, entry->current, seen, keep, k);
+//        printf("%zu %d %d %d %s\n", depth, entry->current, seen, keep, k);
 
-        if (keep) {
+        if (target_distance > 0) {
             ++ended_keep;
             //We hit a node that we are already keeping - keep all our path!
-            status("Reached a target at depth: %zu\n", pos);
-            for (size_t i = pos - 1; i > 0; i--) {
+            status("Reached a target at depth: %lu\n", depth);
+            parent_target_distance = target_distance + 1;
+            for (size_t i = depth - 1; i > 0; i--) {
                 node = stack[i].nodes[stack[i].current - 1]; //-1 here as current is pointing to the unexplored branch
-                if (bitset_get(node.orient == FORWARD ? keep_forward : keep_reverse, node.key)) {
+                if ((node.orient == FORWARD ? target_distance_forward : target_distance_reverse)[node.key] >= parent_target_distance) {
+                    //We got to an ancestor who already has a better (or same) path to the target so we can stop rewriting their distances
                     break;
                 }
-                bitset_set(node.orient == FORWARD ? keep_forward : keep_reverse, node.key);
+                (node.orient == FORWARD ? target_distance_forward : target_distance_reverse)[node.key] = parent_target_distance;
+                ++parent_target_distance;
             }
         }
-        if (already_seen_shallower) {
-            ++ended_seen;
-        }
-        if (!already_seen_shallower && !keep) {
+        if (target_distance == 0) { //We haven't seen the node and it isn't already marked as on a path to target
             //Fresh node (or a node that we need to explore more deeply) - mark as seen and explore children
-            (node.orient == FORWARD ? seen_depth_forward : seen_depth_reverse)[node.key] = pos;
-            ++pos;
-            stack[pos].current = 0;
-            if (pos < max_depth) {
-                ++visited;
-                edges = db_node_get_edges_union(db_graph, node.key);
-                stack[pos].num = db_graph_next_nodes(
-                        db_graph,
-                        db_node_get_bkey(db_graph, node.key),
-                        node.orient, //Forward relative to the starting kmer
-                        edges, &stack[pos].nodes, next_bases);
-            } else {
-                stack[pos].num = 0;
-                ++ended_depth;
-            }
+            (node.orient == FORWARD ? target_distance_forward : target_distance_reverse)[node.key] = -1; //This will get rewritten if we eventually hit the target
+            ++depth;
+            stack[depth].current = 0;
+            ++visited;
+            edges = db_node_get_edges_union(db_graph, node.key);
+            stack[depth].num = db_graph_next_nodes(
+                    db_graph,
+                    db_node_get_bkey(db_graph, node.key),
+                    node.orient, //Forward relative to the starting kmer
+                    edges, &stack[depth].nodes, next_bases);
         }
         //Explore the next child next time we visit
         ++(entry->current);
     };
-    status("Traversal ended reasons: %d seen, %d keep, %d depth", ended_seen, ended_keep, ended_depth);
+    status("Visited: %lu", visited);
+    status("Traversal ended reasons: %lu seen, %lu keep, %lu depth", ended_seen, ended_keep, ended_depth);
+    status("Shortest route to target: %ld", (builder.start_node.orient == FORWARD ? target_distance_forward : target_distance_reverse)[builder.start_node.key]);
 
-    bitset_set(builder.start_node.orient == FORWARD ? keep_forward : keep_reverse, builder.start_node.key);
+    for(size_t i = 0; i < db_graph->ht.capacity; i++)
+        if (target_distance_forward[i] > 0 || target_distance_reverse[i] > 0)
+            bitset_set(kmer_mask, i);
 
-    size_t num_bytes = roundup_bits2bytes(db_graph->ht.capacity);
-    for(size_t i = 0; i < num_bytes; i++)
-        kmer_mask[i] = keep_forward[i] | keep_reverse[i];
-
-    ctx_free(keep_forward);
-    ctx_free(keep_reverse);
-    ctx_free(seen_depth_forward);
-    ctx_free(seen_depth_reverse);
+    ctx_free(target_distance_forward);
+    ctx_free(target_distance_reverse);
     ctx_free(stack);
     traversal_subgraph_builder_dealloc(&builder);
 }
