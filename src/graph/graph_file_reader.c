@@ -156,7 +156,7 @@ size_t graph_file_read_header(GraphFileReader *file)
     {
       uint32_t len;
       _gfread(file, &len, sizeof(uint32_t), "sample name length");
-      if(len > 10000) die("Very big sample name. Length: %u", len);
+      if(len > 200000) die("Very big sample name. Length: %u", len);
 
       StrBuf *sbuf = &h->ginfo[i].sample_name;
       strbuf_ensure_capacity(sbuf, len);
@@ -234,7 +234,7 @@ size_t graph_file_read_header(GraphFileReader *file)
       // Read cleaned against name
       uint32_t len;
       _gfread(file, &len, sizeof(uint32_t), "graph name length");
-      if(len > 10000) die("Very big sample name. Length: %u", len);
+      if(len > 200000) die("Very big sample name. Length: %u", len);
 
       StrBuf *sbuf = &err_cleaning->intersection_name;
       strbuf_ensure_capacity(sbuf, len);
