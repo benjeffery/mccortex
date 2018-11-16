@@ -96,7 +96,7 @@ void traverse_and_mark(dBGraph *db_graph, size_t nthreads, size_t max_depth,
     Edges edges;
     Nucleotide next_bases[4];
     dBNode node;
-    unsigned long keep, seen, ended_keep = 0, ended_depth = 0, ended_seen = 0;
+    unsigned long ended_keep = 0, ended_depth = 0, ended_seen = 0;
     long target_distance, parent_target_distance;
     stack[depth].current = 0;
     stack[depth].num = 1;
@@ -107,7 +107,10 @@ void traverse_and_mark(dBGraph *db_graph, size_t nthreads, size_t max_depth,
 
     unsigned long visited = 0;
     while (depth >= 1){
-        if (visited % 100000000 == 0) status("Visited: %lu depth:%lu", visited, depth);
+        if (visited % 10000000 == 0) {
+            status("Visited: %lu depth:%lu", visited, depth);
+            status("Traversal ended reasons: %lu seen, %lu keep, %lu depth", ended_seen, ended_keep, ended_depth);
+        }
 
         entry = &stack[depth];
         //Have we exhausted the branches of the parent node?
@@ -128,7 +131,7 @@ void traverse_and_mark(dBGraph *db_graph, size_t nthreads, size_t max_depth,
         if (target_distance > 0) {
             ++ended_keep;
             //We hit a node that we are already keeping - keep all our path!
-            status("Reached a target at depth: %lu\n", depth);
+//            status("Reached a target at depth: %lu\n", depth);
             parent_target_distance = target_distance + 1;
             for (size_t i = depth - 1; i > 0; i--) {
                 node = stack[i].nodes[stack[i].current - 1]; //-1 here as current is pointing to the unexplored branch
@@ -145,6 +148,7 @@ void traverse_and_mark(dBGraph *db_graph, size_t nthreads, size_t max_depth,
             (node.orient == FORWARD ? target_distance_forward : target_distance_reverse)[node.key] = -1; //This will get rewritten if we eventually hit the target
             ++depth;
             stack[depth].current = 0;
+            if (depth < max_depth) {
             ++visited;
             edges = db_node_get_edges_union(db_graph, node.key);
             stack[depth].num = db_graph_next_nodes(
@@ -152,6 +156,10 @@ void traverse_and_mark(dBGraph *db_graph, size_t nthreads, size_t max_depth,
                     db_node_get_bkey(db_graph, node.key),
                     node.orient, //Forward relative to the starting kmer
                     edges, &stack[depth].nodes, next_bases);
+            } else {
+                stack[depth].num = 0;
+                ++ended_depth;
+            }
         }
         //Explore the next child next time we visit
         ++(entry->current);
