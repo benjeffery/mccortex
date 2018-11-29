@@ -1,3 +1,6 @@
+#include "global.h"
+#include "ctx_assert.h"
+
 #ifndef DNA_H_
 #define DNA_H_
 
