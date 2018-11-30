@@ -82,10 +82,10 @@ uint64_t rea_name(dBNode node, uint64_t ht_size) {
     return node.key + node.orient * ht_size;
 }
 
-dBNode get_db_node(REANode *rea_node, uint64_t ht_size) {
+dBNode get_db_node(uint64_t rea_node, uint64_t ht_size) {
     dBNode n = {
-            .key = rea_node->name % ht_size,
-            .orient = rea_node->name / ht_size
+            .key = rea_node % ht_size,
+            .orient = rea_node / ht_size
     };
     return n;
 }
@@ -229,7 +229,7 @@ void UpdateBestInHeap(Heap *H, Path *elt) {
 
 
 /*============================================================================*/
-void InitializeCandidateSet(REANode *rea_node, REANode* rea_nodes, dBGraph* db_graph, uint64_t ht_size) {
+void InitializeCandidateSet(REANode *rea_node, REANode *rea_nodes, dBGraph *db_graph, uint64_t ht_size) {
     /* The set of candidates is  initialized with the best path from
        each  predecessor node, except  the  one from which  the best
        path at the current node  comes. If the current node is the
@@ -237,7 +237,7 @@ void InitializeCandidateSet(REANode *rea_node, REANode* rea_nodes, dBGraph* db_g
        exists) provide a candidate */
 
     Path *path,
-         *newCand;
+            *newCand;
     dBNode nodes[4];
     Nucleotide next_bases[4];
     Edges edges;
@@ -250,7 +250,7 @@ void InitializeCandidateSet(REANode *rea_node, REANode* rea_nodes, dBGraph* db_g
             db_graph,
             db_node_get_bkey(db_graph, db_node.key),
             db_node.orient, //REVERSE relative to the starting kmer
-            edges, (dBNode*)&nodes, next_bases);
+            edges, (dBNode *) &nodes, next_bases);
 
 
     CreateHeap(&rea_node->heap, number_edges);
@@ -270,7 +270,7 @@ void InitializeCandidateSet(REANode *rea_node, REANode* rea_nodes, dBGraph* db_g
 
 
 /*============================================================================*/
-Path *NextPath(Path *path, REANode* rea_nodes, dBGraph* db_graph, uint64_t ht_size) {
+Path *NextPath(Path *path, REANode *rea_nodes, dBGraph *db_graph, uint64_t ht_size) {
     /* Central routine of the Recursive Enumeration Algorithm: computes the
        next path from the initial node to the same node in which the argument
        path ends, assuming that it has not been computed before.
@@ -336,42 +336,51 @@ Path *NextPath(Path *path, REANode* rea_nodes, dBGraph* db_graph, uint64_t ht_si
 
 }
 
-int REA(dBGraph* db_graph, dBNode start, dBNode target, uint64_t max_length) {
+void REA(dBGraph *db_graph, dBNode start, dBNode target, uint8_t *kmer_mask, uint64_t max_length) {
     Path *path;
     REANode *rea_nodes;
     uint64_t ht_size = db_graph->ht.capacity;
 
     /********** Allocates memory for heaps ************************************/
     /* Worst case is number of edges, but that is very unlikely to happen */
-    heapsBuffer = (Path **) ctx_malloc(ht_size * sizeof(*heapsBuffer));
-    firstFreeHeap = heapsBuffer;
-    rea_nodes = ctx_malloc(sizeof(REANode) * ht_size * 2);
-    pathsBuffer = ctx_malloc(sizeof(Path) * ht_size * 4);
-    MAX_PATHS = ht_size * 4;
+//    heapsBuffer = (Path **) ctx_malloc(ht_size * sizeof(*heapsBuffer));
+//    firstFreeHeap = heapsBuffer;
+    uint32_t *forward_distances = ctx_calloc(ht_size * 2, sizeof(uint32_t));
+    uint32_t *reverse_distances = ctx_calloc(ht_size * 2, sizeof(uint32_t));
+//    pathsBuffer = ctx_malloc(sizeof(Path) * ht_size * 4);
+//    MAX_PATHS = ht_size * 4;
     /* Initializes for each node the counters of input and output arcs, */
     /* the heap of candidate paths, the best path and the node name     */
-    for (uint64_t i = 0;i < ht_size * 2; ++i) {
-        rea_nodes[i].name = i;
-        rea_nodes[i].bestPath = CreatePath(&rea_nodes[i], NULL, INFINITY_COST);
-        rea_nodes[i].bestPath->nextPath = NULL;
-        rea_nodes[i].heap.elt = NULL;
+    for (uint64_t i = 0; i < ht_size * 2; ++i) {
+        forward_distances[i] = INFINITY_COST;
+        reverse_distances[i] = INFINITY_COST;
     }
 
     /****************** Computes the shortest path tree ***********************/
-    status("Running initial Dijkstra BFS....");
-    Dijkstra(db_graph, rea_nodes, start, FORWARD);
+    status("Running forward Dijkstra BFS....");
+    Dijkstra(db_graph, forward_distances, start, FORWARD);
+    status("Shortest: %d", forward_distances[rea_name(target, ht_size)]);
+    status("Running reverse Dijkstra BFS....");
+    Dijkstra(db_graph, reverse_distances, target, REVERSE);
+    status("Shortest: %d", reverse_distances[rea_name(start, ht_size)]);
 
-    REANode finalNode = rea_nodes[rea_name(target, ht_size)];
-    status("Shortest: %lu", finalNode.bestPath->cost);
-
-#ifdef DEBUG
-    for (node = graph.node, numberREANodes = graph.numberREANodes; numberREANodes != 0;
-         node++, numberREANodes--) {
-      printf ("\nBest Path for FinalREANode=%i: ", node->name);
-      PrintPath (node->bestPath);
+    for (uint64_t i = 0; i < ht_size; i++) {
+        if (forward_distances[i] + reverse_distances[i] < max_length ||
+            forward_distances[i + ht_size] + reverse_distances[i + ht_size] < max_length) {
+            bitset_set(kmer_mask, i);
+        }
     }
+
+    ctx_free(forward_distances);
+    ctx_free(reverse_distances);
+#ifdef DEBUG
+        for (node = graph.node, numberREANodes = graph.numberREANodes; numberREANodes != 0;
+             node++, numberREANodes--) {
+          printf ("\nBest Path for FinalREANode=%i: ", node->name);
+          PrintPath (node->bestPath);
+        }
 #endif
-    /******************** Computes the K shortest paths ***********************/
+        /******************** Computes the K shortest paths ***********************/
 //    uint64_t i = 2;
 //    uint64_t last  = 0;
 //    path = finalNode.bestPath;
@@ -385,9 +394,7 @@ int REA(dBGraph* db_graph, dBNode start, dBNode target, uint64_t max_length) {
 //    }
 //    status("%lu paths", i);
 
-    die("END");
-
-    /************ Prints the computed paths and time counters ******************/
+        /************ Prints the computed paths and time counters ******************/
 //    i = 1;
 //    path = graph.finalREANode->bestPath;
 //    while (i <= numberPaths && path != NULL && path->cost < INFINITY_COST) {
@@ -400,4 +407,4 @@ int REA(dBGraph* db_graph, dBNode start, dBNode target, uint64_t max_length) {
 //    printf("\nTotalExecutionTime: %.2f\n", (float) cumulatedSeconds[i - 2]);
 //    return (0);
 
-}
+    }

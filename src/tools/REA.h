@@ -53,10 +53,10 @@
 
 #ifndef _REA_H_INCLUDED
 
-#define COST_TYPE uint64_t     /* You can change this type but you should verify
+#define COST_TYPE uint32_t     /* You can change this type but you should verify
                              its use in printf's, scanf's and castings */
 
-#define INFINITY_COST 10000000000 /* Instead of INT_MAX, to avoid overflow  */
+#define INFINITY_COST 1000000000 /* Instead of INT_MAX, to avoid overflow  */
                                   /* when adding some cost to INFINITY_COST */
 
 
@@ -90,8 +90,8 @@ typedef struct REANode {
 
 Path *CreatePath (REANode *REANode, Path *backPath, COST_TYPE cost);
 uint64_t rea_name(dBNode node, uint64_t ht_size);
-dBNode get_db_node(REANode *rea_node, uint64_t ht_size);
-int REA(dBGraph* db_graph, dBNode start, dBNode target, uint64_t num_paths);
+dBNode get_db_node(uint64_t rea_node, uint64_t ht_size);
+void REA(dBGraph* db_graph, dBNode start, dBNode target, uint8_t *kmer_mask, uint64_t num_paths);
 
 #define _REA_H_INCLUDED
 #endif

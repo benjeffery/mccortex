@@ -87,7 +87,7 @@ void traverse_and_mark(dBGraph *db_graph, size_t nthreads, size_t max_depth,
     seq_parse_se_sf(endfiles[0], 0, &r1, get_end_from_read, &builder);
     seq_read_dealloc(&r1);
 
-    REA(db_graph, builder.start_node, builder.end_node, max_depth);
+    REA(db_graph, builder.start_node, builder.end_node, kmer_mask, max_depth);
 
 
     traversal_subgraph_builder_dealloc(&builder);

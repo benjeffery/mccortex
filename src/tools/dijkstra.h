@@ -46,7 +46,7 @@
 
 #ifndef _DIJKSTRA_H_INCLUDED
 
-void Dijkstra(dBGraph* db_graph, REANode* rea_nodes, dBNode start, Orientation direction);
+void Dijkstra(dBGraph* db_graph, uint32_t* distances, dBNode start, Orientation direction);
 
 #define _DIJKSTRA_H_INCLUDED
 #endif

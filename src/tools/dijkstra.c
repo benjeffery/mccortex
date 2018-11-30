@@ -198,7 +198,7 @@ void DecreaseCostInDijkstraHeap(DijkstraHeap *heap, COST_TYPE cost, uint64_t nam
 }
 
 /*============================================================================*/
-void Dijkstra(dBGraph* db_graph, REANode* rea_nodes, dBNode start, Orientation direction) {
+void Dijkstra(dBGraph* db_graph, uint32_t* distances, dBNode start, Orientation direction) {
     /* Computes the tree with the best path from the initial node to
        every node in the graph. Works for graphs with positive weigths.
        rea_node->bestPath was initialized by caller for every rea_node.
@@ -207,7 +207,6 @@ void Dijkstra(dBGraph* db_graph, REANode* rea_nodes, dBNode start, Orientation d
     COST_TYPE bestCost;
     uint64_t indexNode;
     uint8_t numberEdges;
-    REANode rea_node;
     dBNode nodes[4];
     dBNode db_node;
     Nucleotide next_bases[4];
@@ -217,19 +216,18 @@ void Dijkstra(dBGraph* db_graph, REANode* rea_nodes, dBNode start, Orientation d
 
     CreateDijkstraHeap(&heap, ht_size * 2);
 
-    REANode initialNode = rea_nodes[rea_name(start, ht_size)];
+    uint64_t initialNode = rea_name(start, ht_size);
 #ifdef DEBUG
     assert (initialNode != NULL);
 #endif
 
-    initialNode.bestPath->cost = 0;
-    indexNode = initialNode.name;
+    distances[initialNode] = 0;
+    indexNode = initialNode;
     InsertInDijkstraHeap(&heap, 0, indexNode);
 
     while (heap.size > 0) {
         bestCost = DeleteBestInDijkstraHeap(&heap, &indexNode);
-        rea_node = rea_nodes[indexNode];
-        db_node = get_db_node(&rea_node, ht_size);
+        db_node = get_db_node(indexNode, ht_size);
 
         edges = db_node_get_edges_union(db_graph, db_node.key);
         numberEdges = db_graph_next_nodes(
@@ -243,18 +241,19 @@ void Dijkstra(dBGraph* db_graph, REANode* rea_nodes, dBNode start, Orientation d
 //        BinaryKmer bk = db_node_get_bkey(db_graph, db_node.key);
 //        if (db_node.orient != start.orient) bk = binary_kmer_reverse_complement(bk, 7);
 //        binary_kmer_to_str(bk, 7, k);
-//        status("%lu %d  %s\n", bestCost, numberEdges, k);
+//        status("%d %d  %s\n", bestCost, numberEdges, k);
 
         for (uint8_t i = 0; i < numberEdges; ++i) {
-            REANode dest = rea_nodes[rea_name(nodes[i], ht_size)];
-            if (bestCost + 1 < dest.bestPath->cost) {
-                indexNode = dest.name;
+            db_node = nodes[i];
+            db_node.orient = db_node.orient ^ direction;
+            uint64_t dest = rea_name(db_node, ht_size);
+            if (bestCost + 1 < distances[dest]) {
+                indexNode = dest;
                 if (BelongsToDijkstraHeap(&heap, indexNode))
                     DecreaseCostInDijkstraHeap(&heap, bestCost + 1, indexNode);
                 else
                     InsertInDijkstraHeap(&heap, bestCost + 1, indexNode);
-                dest.bestPath->cost = bestCost + 1;
-                dest.bestPath->backPath = rea_node.bestPath;
+                distances[dest] = bestCost + 1;
             }
         }
     }
